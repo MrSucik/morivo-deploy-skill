@@ -31,8 +31,8 @@ local clone: `~/p/morivo-hyperboost`.
 ## First-time setup (once per machine)
 
 Detect first-time state by checking if `~/p/morivo-hyperboost` exists
-*and* `npx wrangler whoami` returns a logged-in account. If either is
-missing, walk through these steps in order:
+*and* the `CLOUDFLARE_API_TOKEN` env var is set in the user's shell.
+If either is missing, walk through these steps in order:
 
 1. **Clone the repo** (if missing):
    ```bash
@@ -46,16 +46,25 @@ missing, walk through these steps in order:
    cd ~/p/morivo-hyperboost/apps/web && npm install --ignore-scripts --no-audit
    ```
 
-3. **Authenticate with Cloudflare** — interactive, ask the user to
-   paste this in their terminal so the OAuth callback can hit
-   localhost:
+3. **Set the Cloudflare API token** — the maintainer issued you an
+   account-scoped API token. Add it to your shell startup so wrangler
+   picks it up automatically:
+   ```bash
+   # Add to ~/.zshrc (or ~/.bashrc):
+   export CLOUDFLARE_API_TOKEN="<paste-token-here>"
+   export CLOUDFLARE_ACCOUNT_ID="1e9a68c75a60b5e5509ed8a2a0f12af5"
    ```
-   ! cd ~/p/morivo-hyperboost/apps/api && npx wrangler login
-   ```
+   Then reload: `source ~/.zshrc`. Verify with `npx wrangler whoami` —
+   you should see "Morivo" as the account.
 
 That's it. The skill assumes the CF account already owns the bindings
 (KV, D1, R2, Pages). To re-provision from scratch, see "Recover from a
 fresh CF account" at the bottom.
+
+The Cloudflare account that hosts everything is **Morivo**
+(account ID `1e9a68c75a60b5e5509ed8a2a0f12af5`). You should never need
+to touch the Cloudflare dashboard — every operation below works via
+the API token.
 
 ## Day-to-day operations
 
@@ -142,11 +151,14 @@ Use `--dry-run` first if unsure.
 
 ## Recover from a fresh CF account
 
-If the user lost access to the Cloudflare account and started a new
-one, re-run the full provisioning:
+If the Cloudflare account is lost and you need to start over with a
+new one (or re-provision the existing Morivo account from scratch),
+re-run the full provisioning:
 
 ```bash
 cd ~/p/morivo-hyperboost
+export CLOUDFLARE_API_TOKEN="<new-token>"
+export CLOUDFLARE_ACCOUNT_ID="<new-account-id>"
 python3 scripts/cf-provision.py
 ```
 
@@ -165,20 +177,25 @@ cd ~/p/morivo-hyperboost && node scripts/migrate-pg-to-cf.mjs --backup=<latest-b
 ```
 
 Then re-deploy the Worker and Pages as in "Deploy a code change".
+Finally, swap nameservers at the registrar to the new account's
+nameservers (visible in the Cloudflare dashboard under the zone
+overview).
 
-## DNS swap (one-time)
+## DNS — already wired
 
-If `morivo.cz` doesn't yet point at Pages and `api.morivo.cz` doesn't
-point at the Worker, attach the custom domains in the Cloudflare
-dashboard:
+DNS for `morivo.cz`, `www.morivo.cz`, `admin.morivo.cz`, and
+`api.morivo.cz` is already configured on the Cloudflare zone in the
+**Morivo** account, and the custom domain attachments to the Pages
+project (`morivo-web`) and Worker (`morivo-api`) are in place.
+You shouldn't need to touch DNS.
 
-- **Pages → Custom domains**: add `morivo.cz` and `www.morivo.cz`,
-  also `admin.morivo.cz`.
-- **Workers → Settings → Triggers → Custom Domains**: add
-  `api.morivo.cz`.
-
-Cloudflare will create the DNS records automatically if the zone is
-on the same account.
+If a record needs editing (e.g. adding an SPF/DMARC TXT for a new
+sender), use the wrangler CLI rather than the dashboard:
+```bash
+# List records
+curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/zones/3d5cdd35172af7c1fd539fe1b28d3ac8/dns_records"
+```
 
 ## Safety rules
 
@@ -191,10 +208,9 @@ on the same account.
    ```bash
    npx wrangler d1 export morivo --remote --output=morivo-$(date +%Y-%m-%d).sql
    ```
-4. **The Coolify VPS still hosts the legacy Postgres copy** until
-   the maintainer manually retires it (per the migration plan,
-   7-day soak after cutover). Don't stop those containers without
-   explicit confirmation.
+4. **Don't share the `CLOUDFLARE_API_TOKEN`.** It grants full control
+   of the Morivo Cloudflare account. If it leaks, ask the maintainer
+   to rotate it via the dashboard.
 
 ## When something is broken
 

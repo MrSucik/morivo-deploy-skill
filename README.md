@@ -33,7 +33,17 @@ Then restart Claude Code.
 
 The skill itself walks you through this on the first invocation —
 clone the [morivo-hyperboost](https://github.com/MrSucik/morivo-hyperboost)
-repo, install dependencies, and run `wrangler login` once.
+repo, install dependencies, and add the Cloudflare API token (the
+maintainer issues you a token scoped to the dedicated `Morivo`
+Cloudflare account):
+
+```bash
+export CLOUDFLARE_API_TOKEN="<token-from-maintainer>"
+export CLOUDFLARE_ACCOUNT_ID="1e9a68c75a60b5e5509ed8a2a0f12af5"
+```
+
+Add those two lines to `~/.zshrc` (or `~/.bashrc`) so wrangler picks
+them up on every shell.
 
 ## What's covered
 
