@@ -68,6 +68,26 @@ the API token.
 
 ## Day-to-day operations
 
+### Test changes safely in the preview environment FIRST
+
+A separate preview environment exists with its own KV/D1/R2/Worker/Pages,
+seeded with the same content as prod. Use it before any prod deploy:
+
+```bash
+# Deploy API to preview Worker
+cd ~/p/morivo-hyperboost/apps/api
+npx wrangler deploy --env=preview
+# → https://morivo-api-preview.morivo.workers.dev
+
+# Deploy SPA to preview Pages
+cd ~/p/morivo-hyperboost/apps/web
+VITE_API_URL=https://morivo-api-preview.morivo.workers.dev npm run build
+npx wrangler pages deploy ./dist --project-name=morivo-web-preview --branch=master
+# → https://morivo-web-preview.pages.dev
+```
+
+Smoke-test there. Once happy, deploy to prod with the steps below.
+
 ### Deploy a code change
 
 1. Pull latest, install deps if `package-lock.json` changed:
