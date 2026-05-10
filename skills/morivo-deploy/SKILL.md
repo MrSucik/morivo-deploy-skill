@@ -153,8 +153,8 @@ stack trace.
 
 ## Restore from a backup
 
-Backups live at `/Users/xxx/p/morivo-backups/<date>/` on the
-maintainer's machine. Each contains:
+Backups live at `~/p/morivo-backups/<date>/` on the maintainer's machine.
+Each contains:
 
 - `morivo-postgres-full.sql.gz` — historic Postgres dump (legacy)
 - `tables/<table>.json` — per-table JSON for KV/D1 import
