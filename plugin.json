@@ -1,6 +1,6 @@
 {
   "name": "morivo-deploy",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude Code skill for managing the morivo.cz Cloudflare-native deployment (Workers + KV + D1 + R2 + Pages).",
   "author": "Daniel Suchan",
   "license": "MIT",

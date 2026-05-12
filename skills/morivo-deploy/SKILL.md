@@ -28,6 +28,24 @@ Live URLs after cutover: `morivo.cz` (Pages), `api.morivo.cz` (Workers),
 The repo lives at `https://github.com/MrSucik/morivo-hyperboost`. Default
 local clone: `~/p/morivo-hyperboost`.
 
+## Safety contract
+
+These guarantees apply to every operation in this skill. Do not strip
+them out when editing.
+
+- **Every code-deploying command** (preview deploy, prod deploy,
+  redeploy, publish, recover-and-redeploy) **must** run the
+  [Pre-deploy git safety](#pre-deploy-git-safety-mandatory) gate first.
+  Read-only commands (logs, admin UI, password reset, backup restore)
+  are exempt.
+- **Every prod deploy** must end with the
+  [Post-deploy bundle smoke](#post-deploy-bundle-smoke). If the marker
+  check fails, surface "rollback recommended — bundle does not match
+  the deployed branch" and stop. Do not claim success.
+- **One code path to prod.** There is exactly one way the skill ships
+  code to morivo.cz — through the gate above. Don't add a shortcut
+  that bypasses it.
+
 ## First-time setup (once per machine)
 
 Detect first-time state by checking if `~/p/morivo-hyperboost` exists
@@ -66,12 +84,77 @@ The Cloudflare account that hosts everything is **Morivo**
 to touch the Cloudflare dashboard — every operation below works via
 the API token.
 
+## Pre-deploy git safety (mandatory)
+
+**Run this BEFORE every code-deploying command** (preview deploy, prod
+deploy, redeploy, publish). Skip only for read-only operations (logs,
+content edits via admin UI, password reset, backup restore).
+
+On 2026-05-12 this skill shipped a stale local clone to prod and
+rolled the live site back ~6 days. The local `master` was behind
+`origin/master`, the operator never ran `git fetch`, and a leftover
+`apps/web/dist/` from an older build was re-deployed verbatim. These
+gates exist to make that impossible.
+
+Start from a known-good state:
+
+```bash
+cd ~/p/morivo-hyperboost
+git fetch origin
+```
+
+Then walk through every gate below in order. **Abort** on any failure
+and surface the reason to the operator — never auto-resolve dirty
+state or auto-discard work.
+
+1. **Working tree clean?** `git status --porcelain` must be empty. If
+   not, print the dirty files and ask the operator whether to commit,
+   stash, or discard before continuing. Do not auto-stash.
+2. **On `master`?** `git rev-parse --abbrev-ref HEAD` must equal
+   `master`. If not, print the current branch and tell the operator
+   to `git checkout master` first.
+3. **Local in sync with `origin/master`?** Compare
+   `git rev-parse HEAD` and `git rev-parse origin/master`:
+   - **Behind** (`git rev-list --count HEAD..origin/master` > 0):
+     say explicitly "your local is N commits behind origin/master —
+     the deploy would publish stale code", show
+     `git log --oneline HEAD..origin/master`, confirm with the
+     operator, then run `git pull --ff-only origin master`.
+   - **Ahead** (`git rev-list --count origin/master..HEAD` > 0):
+     print the unpushed commits with
+     `git log --oneline origin/master..HEAD`, **abort**, ask the
+     operator to push or reset first.
+   - **Diverged** (both counts > 0): **abort** with instructions to
+     investigate manually. Do not attempt to rebase or merge from
+     the skill.
+4. **Show what's about to ship.** Print `git log -1 --oneline` so the
+   operator sees the head commit before any artifacts are built.
+5. **Nuke stale build artifacts.** Always run, no exceptions:
+   ```bash
+   rm -rf apps/web/dist apps/api/.wrangler
+   ```
+   A stale `dist/` was the proximate cause of the 2026-05-12
+   regression — the build appeared to succeed because old artifacts
+   were still on disk.
+6. **Install deps from scratch.**
+   ```bash
+   cd apps/web && npm install --prefer-offline --no-audit
+   ```
+   (Do the same for `apps/api` when deploying the Worker.)
+
+Only after **all six** gates pass may you proceed to `wrangler ... deploy`.
+
 ## Day-to-day operations
 
 ### Test changes safely in the preview environment FIRST
 
 A separate preview environment exists with its own KV/D1/R2/Worker/Pages,
-seeded with the same content as prod. Use it before any prod deploy:
+seeded with the same content as prod. Use it before any prod deploy.
+
+**First**: run the
+[Pre-deploy git safety](#pre-deploy-git-safety-mandatory) gate —
+preview deploys are still code deploys and the same staleness footgun
+applies.
 
 ```bash
 # Deploy API to preview Worker
@@ -82,7 +165,11 @@ npx wrangler deploy --env=preview
 # Deploy SPA to preview Pages
 cd ~/p/morivo-hyperboost/apps/web
 VITE_API_URL=https://morivo-api-preview.morivo.workers.dev npm run build
-npx wrangler pages deploy ./dist --project-name=morivo-web-preview --branch=master
+COMMIT=$(git -C ~/p/morivo-hyperboost rev-parse --short HEAD)
+npx wrangler pages deploy ./dist \
+  --project-name=morivo-web-preview \
+  --branch=master \
+  --commit-message="preview ${COMMIT} by ${USER}"
 # → https://morivo-web-preview.pages.dev
 ```
 
@@ -90,21 +177,27 @@ Smoke-test there. Once happy, deploy to prod with the steps below.
 
 ### Deploy a code change
 
-1. Pull latest, install deps if `package-lock.json` changed:
-   ```bash
-   cd ~/p/morivo-hyperboost && git pull --ff-only
-   ```
-2. Deploy the API (Workers):
+**First**: run the
+[Pre-deploy git safety](#pre-deploy-git-safety-mandatory) gate. Do not
+skip it — that's what shipped a stale clone to prod on 2026-05-12.
+
+1. Deploy the API (Workers), if it changed:
    ```bash
    cd ~/p/morivo-hyperboost/apps/api && npx wrangler deploy
    ```
-3. Deploy the SPA (Pages) — set `VITE_API_URL` to the production API:
+2. Build and deploy the SPA (Pages):
    ```bash
    cd ~/p/morivo-hyperboost/apps/web
    VITE_API_URL=https://api.morivo.cz npm run build
-   npx wrangler pages deploy ./dist --project-name=morivo-web --branch=master
+   COMMIT=$(git -C ~/p/morivo-hyperboost rev-parse --short HEAD)
+   npx wrangler pages deploy ./dist \
+     --project-name=morivo-web \
+     --branch=master \
+     --commit-message="deploy ${COMMIT} by ${USER}"
    ```
-4. Smoke-test:
+3. Run the [Post-deploy bundle smoke](#post-deploy-bundle-smoke).
+   **Stop here if it fails** and surface the rollback recommendation.
+4. Verify endpoints:
    ```bash
    curl -s https://api.morivo.cz/health
    curl -sI https://morivo.cz/ | head -1
@@ -112,6 +205,32 @@ Smoke-test there. Once happy, deploy to prod with the steps below.
 
 If the user only edited content in the admin UI (not code), they don't
 need to deploy anything — KV writes propagate within ~60 seconds.
+
+### Post-deploy bundle smoke
+
+After every prod Pages deploy, verify the served bundle matches the
+branch you just shipped. The check fetches the homepage, finds the
+SPA bundle reference, and greps for a stable marker present in every
+build of the current SPA (`morivo:cookie-consent`).
+
+```bash
+HTML=$(curl -s https://morivo.cz/)
+ASSET=$(printf '%s' "$HTML" | grep -oE '/assets/index-[A-Za-z0-9_-]+\.js' | head -1)
+if [ -z "$ASSET" ]; then
+  echo "❌ rollback recommended — could not find SPA bundle reference in served HTML"
+  exit 1
+fi
+if ! curl -s "https://morivo.cz${ASSET}" | grep -q "morivo:cookie-consent"; then
+  echo "❌ rollback recommended — bundle does not match the deployed branch (marker missing)"
+  exit 1
+fi
+echo "✅ smoke: prod is serving the expected bundle (${ASSET})"
+```
+
+If the marker is missing, page the operator with the rollback
+recommendation. Don't claim the deploy succeeded — Cloudflare Pages
+retains the previous deployment and rollback is a single dashboard
+click (or `wrangler pages deployment` rollback flow).
 
 ### View live logs
 
@@ -196,7 +315,12 @@ echo $RESEND_API_KEY | npx wrangler secret put RESEND_API_KEY
 cd ~/p/morivo-hyperboost && node scripts/migrate-pg-to-cf.mjs --backup=<latest-backup>
 ```
 
-Then re-deploy the Worker and Pages as in "Deploy a code change".
+Then re-deploy the Worker and Pages as in "Deploy a code change" —
+the [Pre-deploy git safety](#pre-deploy-git-safety-mandatory) gate
+applies here too, and the
+[Post-deploy bundle smoke](#post-deploy-bundle-smoke) must pass
+before you swap nameservers.
+
 Finally, swap nameservers at the registrar to the new account's
 nameservers (visible in the Cloudflare dashboard under the zone
 overview).
@@ -231,6 +355,12 @@ curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
 4. **Don't share the `CLOUDFLARE_API_TOKEN`.** It grants full control
    of the Morivo Cloudflare account. If it leaks, ask the maintainer
    to rotate it via the dashboard.
+5. **Never bypass the
+   [Pre-deploy git safety](#pre-deploy-git-safety-mandatory) gate or
+   the [Post-deploy bundle smoke](#post-deploy-bundle-smoke).** These
+   exist because past deploys silently rolled the site back. If you
+   need to "just push something quickly", that's exactly the case the
+   gate is for.
 
 ## When something is broken
 
