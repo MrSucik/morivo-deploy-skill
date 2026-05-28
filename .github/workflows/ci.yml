@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate plugin + skills
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate JSON files (jq)
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' f; do
+            found=1
+            echo "Checking $f"
+            jq empty "$f"
+          done < <(find . -path ./.git -prune -o -name '*.json' -type f -print0)
+          if [ "$found" -eq 0 ]; then
+            echo "No JSON files found to validate."
+          fi
+
+      - name: Install PyYAML
+        run: python3 -m pip install --upgrade pyyaml
+
+      - name: Validate SKILL.md frontmatter (name + description)
+        run: |
+          python3 - <<'PY'
+          import glob
+          import sys
+
+          try:
+              import yaml
+          except ImportError:
+              print("PyYAML missing; installing fallback would be needed", file=sys.stderr)
+              raise
+
+          skill_files = sorted(glob.glob("**/SKILL.md", recursive=True))
+          if not skill_files:
+              print("No SKILL.md files found.")
+              sys.exit(0)
+
+          errors = []
+          for path in skill_files:
+              with open(path, encoding="utf-8") as fh:
+                  text = fh.read()
+              if not text.startswith("---"):
+                  errors.append(f"{path}: missing YAML frontmatter (no leading '---')")
+                  continue
+              parts = text.split("---", 2)
+              if len(parts) < 3:
+                  errors.append(f"{path}: malformed frontmatter (no closing '---')")
+                  continue
+              try:
+                  meta = yaml.safe_load(parts[1]) or {}
+              except yaml.YAMLError as exc:
+                  errors.append(f"{path}: invalid YAML frontmatter: {exc}")
+                  continue
+              if not isinstance(meta, dict):
+                  errors.append(f"{path}: frontmatter is not a mapping")
+                  continue
+              for key in ("name", "description"):
+                  value = meta.get(key)
+                  if not isinstance(value, str) or not value.strip():
+                      errors.append(f"{path}: missing or empty '{key}'")
+              print(f"Checked {path}")
+
+          if errors:
+              print("\nFrontmatter validation failed:", file=sys.stderr)
+              for err in errors:
+                  print(f"  - {err}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"\nAll {len(skill_files)} SKILL.md file(s) valid.")
+          PY

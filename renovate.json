@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "packageRules": [
+    {
+      "description": "Group non-major updates into one PR per repo",
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "non-major dependencies"
+    },
+    {
+      "description": "Majors get their own PR + longer cooldown",
+      "matchUpdateTypes": [
+        "major"
+      ],
+      "minimumReleaseAge": "7 days"
+    },
+    {
+      "description": "Own private packages trusted immediately",
+      "matchPackagePrefixes": [
+        "@blaze-it/",
+        "@blaze/",
+        "@jarvis/"
+      ],
+      "minimumReleaseAge": "0"
+    },
+    {
+      "description": "Dev tooling keeps the cooldown (build-time fs/net access)",
+      "matchDepTypes": [
+        "devDependencies"
+      ],
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Pin GitHub Actions to digests over time",
+      "matchManagers": [
+        "github-actions"
+      ],
+      "pinDigests": true
+    }
+  ],
+  "vulnerabilityAlerts": {
+    "description": "Security fixes bypass cooldown",
+    "minimumReleaseAge": "0",
+    "labels": [
+      "security"
+    ]
+  },
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": [
+      "before 5am on monday"
+    ]
+  }
+}
