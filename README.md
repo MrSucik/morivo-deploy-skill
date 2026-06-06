@@ -24,7 +24,7 @@ want to memorise the wrangler CLI.
 Or clone manually:
 
 ```bash
-git clone https://github.com/MrSucik/morivo-deploy-skill ~/.claude/plugins/morivo-deploy-skill
+git clone https://git.blaze.codes/mrsucik/morivo-deploy-skill ~/.claude/plugins/morivo-deploy-skill
 ```
 
 Then restart Claude Code.
@@ -32,7 +32,7 @@ Then restart Claude Code.
 ## First-time setup
 
 The skill itself walks you through this on the first invocation —
-clone the [morivo-hyperboost](https://github.com/MrSucik/morivo-hyperboost)
+clone the [morivo-hyperboost](https://git.blaze.codes/mrsucik/morivo-hyperboost)
 repo, install dependencies, and add the Cloudflare API token (the
 maintainer issues you a token scoped to the dedicated `Morivo`
 Cloudflare account):
